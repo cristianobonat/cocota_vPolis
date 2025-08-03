@@ -1,48 +1,36 @@
 import React, { useState, useEffect } from 'react';
-
-// Importando os componentes que criamos
-// Assumindo que eles estão em uma pasta 'src/components/'
 import LoginPage from './components/LoginPage';
 import PortalPage from './components/PortalPage';
 import CreateEditPage from './components/CreateEditPage';
 import ViewSubPage from './components/ViewSubPage';
 import MarkdownEditorApp from './components/MarkdownEditorApp';
-
-// Importando as funções do Firebase
 import { initializeApp } from 'firebase/app';
-import { 
-    getAuth, 
-    signInAnonymously, 
-    onAuthStateChanged,
-    signInWithCustomToken 
-} from 'firebase/auth';
-import { 
-    getFirestore, 
-    collection, 
-    addDoc, 
-    onSnapshot, 
-    query,
-    doc,
-    setDoc
-} from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, addDoc, onSnapshot, query, doc, setDoc } from 'firebase/firestore';
 
+// --- Configuração do Firebase para Produção ---
+// IMPORTANTE: Cole aqui as suas credenciais do Firebase.
+// Você pode encontrá-las no Console do Firebase > Configurações do Projeto.
+const firebaseConfig = {
+  apiKey: "SUA_API_KEY",
+  authDomain: "SEU_AUTH_DOMAIN",
+  projectId: "SEU_PROJECT_ID",
+  storageBucket: "SEU_STORAGE_BUCKET",
+  messagingSenderId: "SEU_MESSAGING_SENDER_ID",
+  appId: "SEU_APP_ID"
+};
 
-// --- Configuração do Firebase ---
-const firebaseConfig = typeof __firebase_config !== 'undefined' 
-    ? JSON.parse(__firebase_config) 
-    : { apiKey: "...", authDomain: "...", projectId: "...", storageBucket: "...", messagingSenderId: "...", appId: "..." };
-
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'cocota-vpolis-default';
+// Usamos um ID de app fixo para o deploy
+const appId = 'cocota-vpolis-deploy';
 
 // --- Inicialização do Firebase ---
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-
 // --- Componente Principal da Aplicação ---
 export default function App() {
-    const [page, setPage] = useState('login'); // 'login', 'portal', 'create', 'edit', 'view', 'markdown_editor'
+    const [page, setPage] = useState('login');
     const [user, setUser] = useState(null);
     const [userId, setUserId] = useState(null);
     const [userPages, setUserPages] = useState([]);
@@ -54,14 +42,11 @@ export default function App() {
             if (firebaseUser) {
                 setUserId(firebaseUser.uid);
             } else {
+                // No ambiente de produção, sempre usamos o login anônimo
                 try {
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
+                    await signInAnonymously(auth);
                 } catch (error) {
-                    console.error("Erro na autenticação:", error);
+                    console.error("Erro na autenticação anônima:", error);
                 }
             }
             setIsAuthReady(true);
@@ -71,35 +56,22 @@ export default function App() {
 
     useEffect(() => {
         if (!isAuthReady || !userId) return;
-        
         const pagesCollectionPath = `artifacts/${appId}/users/${userId}/pages`;
         const q = query(collection(db, pagesCollectionPath));
-
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             const pagesData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setUserPages(pagesData);
         }, (error) => {
             console.error("Erro ao buscar páginas:", error);
         });
-
         return () => unsubscribe();
     }, [isAuthReady, userId]);
 
-    const handleLogin = (username) => {
-        setUser(username);
-        setPage('portal');
-    };
-
-    const handleLogout = () => {
-        setUser(null);
-        setPage('login');
-    };
+    const handleLogin = (username) => { setUser(username); setPage('portal'); };
+    const handleLogout = () => { setUser(null); setPage('login'); };
 
     const handleSavePage = async (pageData) => {
-        if (!userId) {
-            console.error("Não é possível salvar: userId é nulo.");
-            return;
-        }
+        if (!userId) { return; }
         const pagesCollectionPath = `artifacts/${appId}/users/${userId}/pages`;
         try {
             if (pageData.id) {
@@ -107,48 +79,26 @@ export default function App() {
                 await setDoc(pageRef, { title: pageData.title, content: pageData.content }, { merge: true });
             } else {
                 await addDoc(collection(db, pagesCollectionPath), {
-                    title: pageData.title,
-                    content: pageData.content,
-                    createdAt: new Date(),
-                    author: user,
+                    title: pageData.title, content: pageData.content, createdAt: new Date(), author: user,
                 });
             }
             setPage('portal');
             setCurrentPage(null);
-        } catch (error) {
-            console.error("Erro ao salvar página: ", error);
-        }
-    };
-    
-    const handleSelectPage = (page) => {
-        setCurrentPage(page);
-        setPage('view');
-    };
-    
-    const handleNavigate = (destination) => {
-        if (destination === 'markdown_editor') {
-            setPage('markdown_editor');
-        }
+        } catch (error) { console.error("Erro ao salvar página: ", error); }
     };
 
-    if (!isAuthReady) {
-        return <div className="min-h-screen flex items-center justify-center bg-amber-50 font-serif text-amber-900">Carregando portal...</div>;
-    }
+    const handleSelectPage = (page) => { setCurrentPage(page); setPage('view'); };
+    const handleNavigate = (destination) => { if (destination === 'markdown_editor') { setPage('markdown_editor'); } };
+
+    if (!isAuthReady) { return <div>Carregando portal...</div>; }
 
     switch (page) {
-        case 'portal':
-            return <PortalPage user={user} userPages={userPages} onSelectPage={handleSelectPage} onCreatePage={() => { setCurrentPage(null); setPage('create'); }} onNavigate={handleNavigate} onLogout={handleLogout} userId={userId} />;
-        case 'create':
-            return <CreateEditPage onSave={handleSavePage} onBack={() => setPage('portal')} />;
-        case 'edit':
-             return <CreateEditPage onSave={handleSavePage} onBack={() => setPage('portal')} pageToEdit={currentPage} />;
-        case 'view':
-            return <ViewSubPage page={currentPage} onBack={() => setPage('portal')} />;
-        case 'markdown_editor':
-            return <MarkdownEditorApp onBack={() => setPage('portal')} />;
-        case 'login':
-        default:
-            return <LoginPage onLogin={handleLogin} />;
+        case 'portal': return <PortalPage user={user} userPages={userPages} onSelectPage={handleSelectPage} onCreatePage={() => { setCurrentPage(null); setPage('create'); }} onNavigate={handleNavigate} onLogout={handleLogout} userId={userId} />;
+        case 'create': return <CreateEditPage onSave={handleSavePage} onBack={() => setPage('portal')} />;
+        case 'edit': return <CreateEditPage onSave={handleSavePage} onBack={() => setPage('portal')} pageToEdit={currentPage} />;
+        case 'view': return <ViewSubPage page={currentPage} onBack={() => setPage('portal')} />;
+        case 'markdown_editor': return <MarkdownEditorApp onBack={() => setPage('portal')} />;
+        default: return <LoginPage onLogin={handleLogin} />;
     }
 }
 
